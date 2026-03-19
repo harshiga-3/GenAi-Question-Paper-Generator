@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const https = require('https');
+const { URL } = require('url');
+
+console.log('✅ Loaded generate routes (rest-v1)');
 
 // Default Bloom's taxonomy distribution (percentages)
 const DEFAULT_BLOOMS = {
@@ -11,6 +14,104 @@ const DEFAULT_BLOOMS = {
   Evaluation: 10,
   Creation: 5
 };
+
+function postJson(urlString, bodyObj) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+    const body = JSON.stringify(bodyObj);
+
+    const req = https.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          resolve({ status: res.statusCode || 0, headers: res.headers, body: data });
+        });
+      }
+    );
+
+    req.on('error', reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+function getText(urlString) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+
+    const req = https.request(
+      {
+        protocol: url.protocol,
+        hostname: url.hostname,
+        port: url.port || 443,
+        path: `${url.pathname}${url.search}`,
+        method: 'GET',
+      },
+      (res) => {
+        let data = '';
+        res.on('data', (chunk) => (data += chunk));
+        res.on('end', () => {
+          resolve({ status: res.statusCode || 0, headers: res.headers, body: data });
+        });
+      }
+    );
+
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+async function generateContentViaRest({ apiKey, modelName, prompt }) {
+  const normalizedModel = (modelName || '').trim().replace(/^models\//i, '');
+  const endpoint = `https://generativelanguage.googleapis.com/v1/models/${encodeURIComponent(normalizedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  const payload = {
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: prompt }],
+      },
+    ],
+  };
+
+  const { status, body } = await postJson(endpoint, payload);
+  let parsed;
+  try {
+    parsed = body ? JSON.parse(body) : null;
+  } catch {
+    const snippet = body && body.length > 500 ? `${body.slice(0, 500)}...` : body;
+    const err = new Error(`Gemini returned non-JSON response (HTTP ${status}). ${snippet || ''}`.trim());
+    err.status = status;
+    throw err;
+  }
+
+  if (status < 200 || status >= 300) {
+    const msg = parsed?.error?.message || `Gemini request failed (HTTP ${status})`;
+    const err = new Error(msg);
+    err.status = status;
+    throw err;
+  }
+
+  const text =
+    parsed?.candidates?.[0]?.content?.parts
+      ?.map((p) => p?.text)
+      .filter(Boolean)
+      .join('') ||
+    '';
+
+  return { text, raw: parsed };
+}
 
 // Build the structured prompt for Gemini
 function buildPrompt({ subject, topic, syllabus, difficulty, examType, sections, bloomsDistribution }) {
@@ -92,18 +193,56 @@ router.get('/test', async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   console.log('API Key loaded:', apiKey ? `${apiKey.substring(0, 8)}...` : 'MISSING');
 
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
     return res.status(500).json({ error: 'GEMINI_API_KEY is not set in .env' });
   }
 
   try {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    const result = await model.generateContent('Say "API OK" and nothing else.');
-    const text = result.response.text();
+    const result = await generateContentViaRest({
+      apiKey,
+      modelName,
+      prompt: 'Say "API OK" and nothing else.',
+    });
+    const text = result.text;
     res.json({ success: true, response: text.trim(), keyPrefix: apiKey.substring(0, 8) });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/generate/models — list available models for this API key
+router.get('/models', async (req, res) => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    return res.status(500).json({ error: 'GEMINI_API_KEY is not set in .env' });
+  }
+
+  try {
+    const endpoint = `https://generativelanguage.googleapis.com/v1/models?key=${encodeURIComponent(apiKey)}`;
+    const { status, body } = await getText(endpoint);
+    let parsed;
+    try {
+      parsed = body ? JSON.parse(body) : null;
+    } catch {
+      const snippet = body && body.length > 500 ? `${body.slice(0, 500)}...` : body;
+      return res.status(500).json({ error: `Models list returned non-JSON (HTTP ${status}). ${snippet || ''}`.trim() });
+    }
+
+    if (status < 200 || status >= 300) {
+      return res.status(status).json({ error: parsed?.error?.message || `List models failed (HTTP ${status})` });
+    }
+
+    const models = (parsed?.models || []).map((m) => ({
+      name: m.name,
+      displayName: m.displayName,
+      supportedGenerationMethods: m.supportedGenerationMethods,
+    }));
+
+    res.json({ success: true, models });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to list models' });
   }
 });
 
@@ -111,6 +250,8 @@ router.get('/test', async (req, res) => {
 router.post('/', async (req, res) => {
   const apiKey = process.env.GEMINI_API_KEY;
   console.log('Using API Key:', apiKey ? `${apiKey.substring(0, 8)}...` : 'MISSING');
+
+  const modelName = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
   if (!apiKey || apiKey === 'your_gemini_api_key_here') {
     return res.status(500).json({ error: 'GEMINI_API_KEY is not configured in backend/.env' });
@@ -138,11 +279,8 @@ router.post('/', async (req, res) => {
 
     const prompt = buildPrompt({ subject, topic, syllabus, difficulty, examType, sections, bloomsDistribution });
 
-    // Lazy-instantiate to always use current env value
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-    const result = await model.generateContent(prompt);
-    const rawText = result.response.text();
+    const result = await generateContentViaRest({ apiKey, modelName, prompt });
+    const rawText = result.text;
 
     // Strip markdown code fences if present
     const jsonText = rawText

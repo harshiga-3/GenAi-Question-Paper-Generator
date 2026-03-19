@@ -22,7 +22,23 @@ app.use('/api/papers', papersRoutes);
 app.use('/api/criteria', criteriaRoutes);
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'QPG Server is running', timestamp: new Date().toISOString() });
+  res.json({
+    status: 'OK',
+    message: 'QPG Server is running',
+    timestamp: new Date().toISOString(),
+    pid: process.pid,
+    aiClient: 'rest-v1'
+  });
+});
+
+// Error handler (must be after routes)
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({
+    success: false,
+    error: err.message || 'Internal Server Error'
+  });
 });
 
 // Connect to MongoDB (optional - falls back to in-memory store if not configured)

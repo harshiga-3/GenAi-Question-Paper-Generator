@@ -81,8 +81,28 @@ export default function GeneratePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, sections, bloomsDistribution: blooms }),
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error || 'Generation failed');
+      const raw = await res.text();
+      const contentType = res.headers.get('content-type') || '';
+
+      let data;
+      if (raw && contentType.toLowerCase().includes('application/json')) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          throw new Error('Server returned invalid JSON. Check backend logs.');
+        }
+      } else if (raw) {
+        try {
+          data = JSON.parse(raw);
+        } catch {
+          const snippet = raw.length > 300 ? `${raw.slice(0, 300)}...` : raw;
+          throw new Error(`Server returned non-JSON response (HTTP ${res.status}). ${snippet}`);
+        }
+      } else {
+        throw new Error(`Empty response from server (HTTP ${res.status}). Check backend logs.`);
+      }
+
+      if (!res.ok || !data?.success) throw new Error(data?.error || `Generation failed (HTTP ${res.status})`);
       setPaper(data.paper);
       addToast('Question paper generated successfully!', 'success');
     } catch (err) {
