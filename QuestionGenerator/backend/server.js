@@ -12,7 +12,14 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors({ origin: 'http://localhost:5173' }));
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true);
+    if (origin === 'http://localhost:5173') return cb(null, true);
+    if (/^https:\/\/.*\.vercel\.app$/.test(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  }
+}));
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true }));
 

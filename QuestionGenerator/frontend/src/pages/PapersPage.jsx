@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { ToastContext } from '../App';
 import QuestionPaperView from '../components/QuestionPaperView';
 
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+
 export default function PapersPage() {
   const [papers, setPapers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,7 +18,7 @@ export default function PapersPage() {
   const fetchPapers = async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/papers');
+      const r = await fetch(`${API_BASE}/api/papers`);
       const d = await r.json();
       if (d.success) setPapers(d.papers);
     } catch (e) {
@@ -28,7 +30,7 @@ export default function PapersPage() {
 
   const viewPaper = async (id) => {
     try {
-      const r = await fetch(`/api/papers/${id}`);
+      const r = await fetch(`${API_BASE}/api/papers/${id}`);
       const d = await r.json();
       if (d.success) setSelectedPaper(d.paper);
     } catch (e) {
@@ -40,7 +42,7 @@ export default function PapersPage() {
     e.stopPropagation();
     if (!window.confirm('Delete this paper permanently?')) return;
     try {
-      const r = await fetch(`/api/papers/${id}`, { method: 'DELETE' });
+      const r = await fetch(`${API_BASE}/api/papers/${id}`, { method: 'DELETE' });
       const d = await r.json();
       if (d.success) {
         addToast('Paper deleted', 'success');

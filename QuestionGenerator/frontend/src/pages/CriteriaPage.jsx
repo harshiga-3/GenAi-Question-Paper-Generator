@@ -2,6 +2,7 @@ import React, { useState, useEffect, useContext } from 'react';
 import { ToastContext } from '../App';
 
 const BLOOMS_KEYS = ['Knowledge', 'Understanding', 'Application', 'Analysis', 'Evaluation', 'Creation'];
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
 
 export default function CriteriaPage() {
   const [templates, setTemplates] = useState([]);
@@ -15,7 +16,7 @@ export default function CriteriaPage() {
   const fetchCriteria = async () => {
     setLoading(true);
     try {
-      const r = await fetch('/api/criteria');
+      const r = await fetch(`${API_BASE}/api/criteria`);
       const d = await r.json();
       if (d.success) setTemplates(d.criteria);
     } catch (e) {
@@ -28,7 +29,7 @@ export default function CriteriaPage() {
   const deleteTemplate = async (id) => {
     if (!window.confirm('Delete this template?')) return;
     try {
-      const r = await fetch(`/api/criteria/${id}`, { method: 'DELETE' });
+      const r = await fetch(`${API_BASE}/api/criteria/${id}`, { method: 'DELETE' });
       const d = await r.json();
       if (d.success) {
         setTemplates(prev => prev.filter(t => t.id !== id));

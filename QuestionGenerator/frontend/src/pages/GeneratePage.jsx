@@ -22,6 +22,8 @@ const DEFAULT_BLOOMS = {
   Analysis: 15, Evaluation: 10, Creation: 5,
 };
 
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || '').replace(/\/$/, '');
+
 export default function GeneratePage() {
   const addToast = useContext(ToastContext);
   const [formData, setFormData] = useState({
@@ -37,7 +39,7 @@ export default function GeneratePage() {
   const [selectedTemplate, setSelectedTemplate] = useState('');
 
   useEffect(() => {
-    fetch('/api/criteria')
+    fetch(`${API_BASE}/api/criteria`)
       .then(r => r.json())
       .then(d => { if (d.success) setCriteriaTemplates(d.criteria); })
       .catch(() => {});
@@ -76,7 +78,7 @@ export default function GeneratePage() {
     setLoading(true);
     setPaper(null);
     try {
-      const res = await fetch('/api/generate', {
+      const res = await fetch(`${API_BASE}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...formData, sections, bloomsDistribution: blooms }),
@@ -115,7 +117,7 @@ export default function GeneratePage() {
   const handleSave = async () => {
     if (!paper) return;
     try {
-      const res = await fetch('/api/papers', {
+      const res = await fetch(`${API_BASE}/api/papers`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(paper),
